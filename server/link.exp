@@ -1,0 +1,11 @@
+#!/usr/bin/expect -f
+spawn npx @railway/cli link
+expect "Select a workspace"
+send "\r"
+expect "Select a project"
+send "tps-simulation\r"
+expect "Select an environment"
+send "\r"
+expect "Select a service (optional)"
+send "\x1b"
+expect eof

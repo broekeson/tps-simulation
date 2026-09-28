@@ -1,0 +1,5 @@
+#!/usr/bin/expect -f
+spawn npx @railway/cli up -d -p 5b574f97-c96b-4825-b7e4-669799954fb1 -e production
+expect "Select a service"
+send "Empty Service\r"
+expect eof

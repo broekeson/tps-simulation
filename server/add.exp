@@ -1,0 +1,7 @@
+#!/usr/bin/expect -f
+spawn npx @railway/cli add
+expect "What do you need?"
+send "Empty Service\r"
+expect "Enter a service name"
+send "backend\r"
+expect eof

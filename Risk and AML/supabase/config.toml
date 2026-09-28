@@ -1,0 +1,6 @@
+# Supabase CLI configuration
+# Project: Risk and AML in Acquiring (ref: mrvxaqealofcwlbovolx)
+project_id = "risk-and-aml-in-acquiring"
+
+[db]
+major_version = 17
