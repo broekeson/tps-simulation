@@ -188,6 +188,24 @@ app.get('/sessions', async (req, res) => {
   }
 });
 
+
+// Fake Leaderboard Routes to prevent 404s breaking the frontend state
+app.get('/leaderboard', (req, res) => {
+  res.json([]);
+});
+
+app.get('/leaderboard_days', (req, res) => {
+  res.json([]);
+});
+
+app.post('/enrollments', (req, res) => {
+  res.json({ message: "Enrollment saved" });
+});
+
+app.patch('/profiles', (req, res) => {
+  res.json({ message: "Profile updated" });
+});
+
 // Fake events route for telemetry shipEvent()
 app.post('/events', (req, res) => {
   res.json({ message: "Events discarded" });
