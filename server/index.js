@@ -137,6 +137,37 @@ app.post('/api/progress', async (req, res) => {
   }
 });
 
+
+// ==========================================
+// AUTO-INITIALIZE DATABASE
+// ==========================================
+app.get('/api/init', async (req, res) => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        avatar VARCHAR(255),
+        role VARCHAR(50) DEFAULT 'user',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS course_progress (
+        user_id INTEGER REFERENCES users(id),
+        course_id VARCHAR(255) NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, course_id)
+      );
+    `);
+    res.json({ message: 'Database tables created successfully!' });
+  } catch (err) {
+    console.error('DB Init Error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Start the server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
