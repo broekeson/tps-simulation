@@ -163,7 +163,7 @@ app.post('/sessions', async (req, res) => {
         INSERT INTO sessions (id, profile_id, course_id, scenario_id, attempt, composite, points, net, sim_day, outcome, mistakes, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, CURRENT_TIMESTAMP))
         ON CONFLICT (id) DO NOTHING
-      `, [s.id, s.profile_id, s.course_id, s.scenario_id, s.attempt, s.composite, s.points, s.net, s.sim_day, s.outcome, s.mistakes, s.created_at]);
+      `, [s.id, s.profile_id, s.course_id, s.scenario_id, s.attempt, s.composite, s.points, s.net, s.sim_day, s.outcome, s.mistakes ? JSON.stringify(s.mistakes) : null, s.created_at || null]);
     }
     res.json({ message: "Saved" });
   } catch(err) {
