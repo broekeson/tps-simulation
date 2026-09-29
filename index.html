@@ -5444,7 +5444,7 @@ $("dbHome").onclick=()=>{renderHome();show("home")};
 
 /* ---------- leaderboard ---------- */
 const LB_BASE={
- "intro-to-payments":[["Priya Raman","Cohort A",742,131000],["Marcus Webb","Cohort A",518,104000],["Sofia Reyes","Cohort B",455,96000],["Tunde Adeyemi","Cohort A",362,82000],["Yuki Tanaka","Cohort B",289,61000],["Omar Haddad","Cohort B",173,44000]],
+ "intro-to-payments":[],
  "risk-aml-acquiring":[]   /* live cohort only: no seeded rows on a real leaderboard */
 };
 /* v0.5 standings: day tabs, individual and team views.
@@ -6884,7 +6884,7 @@ function facMailAll(){
 }
 
 function reportHtml(o, prog, per, days){
-  const cTitle = (COURSES[FAC.course] && COURSES[FAC.course].title) || FAC.course;
+  const cTitle = (prog && prog.title) || (COURSES[FAC.course] && COURSES[FAC.course].title) || FAC.course;
   const dayRowsHtml = (days || []).map(d => `
     <tr>
       <td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-weight:600;">${escCsv(d.label || d.id)}</td>
@@ -7060,7 +7060,7 @@ h1, h2, h3, .brand, .hub-logo, .hero-title, .track-title, .kpi-num {
       <tr>
         <th>Round / Scenario</th>
         <th style="text-align:right;">Points Awarded</th>
-        <th style="text-align:right;">Capital Ending Balance</th>
+        <th style="text-align:right;">Round Net / P&L</th>
       </tr>
     </thead>
     <tbody>

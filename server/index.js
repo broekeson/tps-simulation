@@ -181,12 +181,28 @@ app.get('/sessions', async (req, res) => {
       return res.json([]);
     }
     const profileId = parseInt(profileIdStr.replace('eq.', ''), 10);
-    const result = await pool.query(`
-      SELECT course_id, scenario_id, points, net, attempt, composite, created_at, id
-      FROM sessions
-      WHERE profile_id = $1
-      ORDER BY created_at ASC
-    `, [profileId]);
+
+    let courseId = null;
+    const cStr = req.query.course_id;
+    if(cStr && cStr.startsWith('eq.')) { courseId = cStr.replace('eq.', ''); }
+    
+    let result;
+    if(courseId) {
+      result = await pool.query(`
+        SELECT course_id, scenario_id, points, net, attempt, composite, created_at, id
+        FROM sessions
+        WHERE profile_id = $1 AND course_id = $2
+        ORDER BY created_at ASC
+      `, [profileId, courseId]);
+    } else {
+      result = await pool.query(`
+        SELECT course_id, scenario_id, points, net, attempt, composite, created_at, id
+        FROM sessions
+        WHERE profile_id = $1
+        ORDER BY created_at ASC
+      `, [profileId]);
+    }
+
     res.json(result.rows);
   } catch(err) {
     console.error("Fetch session error:", err);
