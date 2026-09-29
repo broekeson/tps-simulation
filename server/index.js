@@ -237,7 +237,7 @@ app.post('/rpc/facilitator_delete_profile', async (req, res) => {
     res.status(500).json(false);
   }
 });
-\napp.post('/enrollments', (req, res) => {
+app.post('/enrollments', (req, res) => {
   res.json({ message: "Enrollment saved" });
 });
 
