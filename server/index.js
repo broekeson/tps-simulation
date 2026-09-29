@@ -150,8 +150,15 @@ app.get('/api/init-v2', async (req, res) => {
 // ==========================================
 
 // Fake profiles endpoint for health checking cloud connectivity
-app.get('/profiles', (req, res) => {
-  res.json([{ team: "connected" }]);
+app.get('/profiles', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT id, name, email, role, created_at, role as team FROM users ORDER BY created_at ASC');
+    // If empty or health check, just ensure it returns at least the mock so frontend doesn't crash
+    if(result.rows.length === 0) return res.json([{ team: "connected" }]);
+    res.json(result.rows);
+  } catch(err) {
+    res.json([{ team: "connected" }]);
+  }
 });
 
 // Save Sessions (from flushOutbox)
@@ -176,31 +183,28 @@ app.post('/sessions', async (req, res) => {
 app.get('/sessions', async (req, res) => {
   try {
     const profileIdStr = req.query.profile_id;
-    if (!profileIdStr || !profileIdStr.startsWith('eq.')) {
-      // Just a probe or invalid request
-      return res.json([]);
-    }
-    const profileId = parseInt(profileIdStr.replace('eq.', ''), 10);
-
-    let courseId = null;
-    const cStr = req.query.course_id;
-    if(cStr && cStr.startsWith('eq.')) { courseId = cStr.replace('eq.', ''); }
+    const courseIdStr = req.query.course_id;
     
+    let profileId = null;
+    if(profileIdStr && profileIdStr.startsWith('eq.')) {
+      profileId = parseInt(profileIdStr.replace('eq.', ''), 10);
+    }
+    
+    let courseId = null;
+    if(courseIdStr && courseIdStr.startsWith('eq.')) {
+      courseId = courseIdStr.replace('eq.', '');
+    }
+
     let result;
-    if(courseId) {
-      result = await pool.query(`
-        SELECT course_id, scenario_id, points, net, attempt, composite, created_at, id
-        FROM sessions
-        WHERE profile_id = $1 AND course_id = $2
-        ORDER BY created_at ASC
-      `, [profileId, courseId]);
+    if (profileId && courseId) {
+      result = await pool.query('SELECT profile_id, course_id, scenario_id, points, net, attempt, composite, created_at, id FROM sessions WHERE profile_id = $1 AND course_id = $2 ORDER BY created_at ASC', [profileId, courseId]);
+    } else if (profileId) {
+      result = await pool.query('SELECT profile_id, course_id, scenario_id, points, net, attempt, composite, created_at, id FROM sessions WHERE profile_id = $1 ORDER BY created_at ASC', [profileId]);
+    } else if (courseId) {
+      // Facilitator fetching all sessions for a course
+      result = await pool.query('SELECT profile_id, course_id, scenario_id, points, net, attempt, composite, created_at, id FROM sessions WHERE course_id = $1 ORDER BY created_at ASC', [courseId]);
     } else {
-      result = await pool.query(`
-        SELECT course_id, scenario_id, points, net, attempt, composite, created_at, id
-        FROM sessions
-        WHERE profile_id = $1
-        ORDER BY created_at ASC
-      `, [profileId]);
+      return res.json([]);
     }
 
     res.json(result.rows);
@@ -220,7 +224,20 @@ app.get('/leaderboard_days', (req, res) => {
   res.json([]);
 });
 
-app.post('/enrollments', (req, res) => {
+
+app.post('/rpc/facilitator_delete_profile', async (req, res) => {
+  try {
+    const { p_id, p_code } = req.body;
+    if (p_code !== 'CATALYST') return res.status(403).json({ error: 'Invalid code' });
+    // Delete sessions then user
+    await pool.query('DELETE FROM sessions WHERE profile_id = $1', [p_id]);
+    await pool.query('DELETE FROM users WHERE id = $1', [p_id]);
+    res.json(true);
+  } catch(err) {
+    res.status(500).json(false);
+  }
+});
+\napp.post('/enrollments', (req, res) => {
   res.json({ message: "Enrollment saved" });
 });
 
