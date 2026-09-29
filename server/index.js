@@ -11,6 +11,12 @@ const port = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+let lastError = null;
+app.get('/api/debug', (req, res) => {
+  res.json({ lastError: lastError ? lastError.message || lastError : "No errors" });
+});
+
+
 // Database connection
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -161,7 +167,7 @@ app.post('/sessions', async (req, res) => {
     }
     res.json({ message: "Saved" });
   } catch(err) {
-    console.error("Save session error:", err);
+    console.error("Save session error:", err); lastError = err;
     res.status(500).json({ error: err.message });
   }
 });
