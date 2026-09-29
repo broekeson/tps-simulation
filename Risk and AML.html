@@ -6732,8 +6732,8 @@ function viewCertificate(cid){
     pct: pct,
     capital: cap,
     rank: rank,
-    status: pct >= 85 ? "distinction" : "pass",
-    daysDone: Object.keys(doneObj).length
+    status: (pct >= 85 && cap >= (c.budget || 0)) ? "distinction" : (pct >= 60 ? "pass" : "failed"),
+    daysDone: Object.keys(doneObj).filter(k => scns.find(s => s.id === k)).length
   };
 
   const days = scns.map(sc => {
