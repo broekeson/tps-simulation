@@ -109,6 +109,91 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+
+// ==========================================
+// AUTO-INITIALIZE DATABASE V2 (Sync Tables)
+// ==========================================
+app.get('/api/init-v2', async (req, res) => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id VARCHAR(255) PRIMARY KEY,
+        profile_id INTEGER REFERENCES users(id),
+        course_id VARCHAR(255),
+        scenario_id VARCHAR(255),
+        attempt INTEGER DEFAULT 1,
+        composite INTEGER,
+        points INTEGER,
+        net INTEGER,
+        sim_day INTEGER,
+        outcome VARCHAR(50),
+        mistakes JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS sessions_profile_idx ON sessions(profile_id, course_id);
+    `);
+    res.json({ message: 'Sync tables created successfully!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// POLYFILL POSTGREST ROUTES FOR FRONTEND SYNC
+// ==========================================
+
+// Fake profiles endpoint for health checking cloud connectivity
+app.get('/profiles', (req, res) => {
+  res.json([{ team: "connected" }]);
+});
+
+// Save Sessions (from flushOutbox)
+app.post('/sessions', async (req, res) => {
+  try {
+    const payload = Array.isArray(req.body) ? req.body : [req.body];
+    for (const s of payload) {
+      await pool.query(`
+        INSERT INTO sessions (id, profile_id, course_id, scenario_id, attempt, composite, points, net, sim_day, outcome, mistakes, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, CURRENT_TIMESTAMP))
+        ON CONFLICT (id) DO NOTHING
+      `, [s.id, s.profile_id, s.course_id, s.scenario_id, s.attempt, s.composite, s.points, s.net, s.sim_day, s.outcome, s.mistakes, s.created_at]);
+    }
+    res.json({ message: "Saved" });
+  } catch(err) {
+    console.error("Save session error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fetch Sessions (when logging in on another device)
+app.get('/sessions', async (req, res) => {
+  try {
+    const profileIdStr = req.query.profile_id;
+    if (!profileIdStr || !profileIdStr.startsWith('eq.')) {
+      // Just a probe or invalid request
+      return res.json([]);
+    }
+    const profileId = parseInt(profileIdStr.replace('eq.', ''), 10);
+    const result = await pool.query(`
+      SELECT course_id, scenario_id, points, net, attempt, composite, created_at, id
+      FROM sessions
+      WHERE profile_id = $1
+      ORDER BY created_at ASC
+    `, [profileId]);
+    res.json(result.rows);
+  } catch(err) {
+    console.error("Fetch session error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fake events route for telemetry shipEvent()
+app.post('/events', (req, res) => {
+  res.json({ message: "Events discarded" });
+});
+
+
 // ==========================================
 // PROGRESS ROUTES
 // ==========================================

@@ -4633,7 +4633,7 @@ const scnList = () => SCENARIOS_BY_COURSE[S.courseId]||[];
    ============================================================ */
 const BACKEND = {
   /* Railway PostgREST backend (configured for deployment) */
-  url: "https://api-risk-aml-production.up.railway.app",
+  url: API_BASE_URL,
   prefix: "", // PostgREST on Railway serves at root; Supabase uses "/rest/v1"
   key: "",
   on: false, probed: false, q: [], timer: null, shipped: 0
