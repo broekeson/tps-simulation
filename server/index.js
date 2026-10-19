@@ -119,29 +119,114 @@ app.post('/api/auth/login', async (req, res) => {
 // ==========================================
 // AUTO-INITIALIZE DATABASE V2 (Sync Tables)
 // ==========================================
+async function ensureSyncTables() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      id VARCHAR(255) PRIMARY KEY,
+      profile_id INTEGER REFERENCES users(id),
+      course_id VARCHAR(255),
+      scenario_id VARCHAR(255),
+      attempt INTEGER DEFAULT 1,
+      composite INTEGER,
+      points INTEGER,
+      net INTEGER,
+      sim_day INTEGER,
+      outcome VARCHAR(50),
+      mistakes JSONB,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS sessions_profile_idx ON sessions(profile_id, course_id);
+
+    CREATE TABLE IF NOT EXISTS r2r2_records (
+      session_code VARCHAR(64) NOT NULL,
+      table_number INTEGER NOT NULL,
+      name VARCHAR(128) DEFAULT '',
+      counts JSONB,
+      events JSONB NOT NULL DEFAULT '[]'::jsonb,
+      ui JSONB,
+      updated_at BIGINT DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (session_code, table_number)
+    );
+  `);
+}
+
+ensureSyncTables().catch(err => console.error('Initial table check error:', err.message));
+
 app.get('/api/init-v2', async (req, res) => {
   try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id VARCHAR(255) PRIMARY KEY,
-        profile_id INTEGER REFERENCES users(id),
-        course_id VARCHAR(255),
-        scenario_id VARCHAR(255),
-        attempt INTEGER DEFAULT 1,
-        composite INTEGER,
-        points INTEGER,
-        net INTEGER,
-        sim_day INTEGER,
-        outcome VARCHAR(50),
-        mistakes JSONB,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE INDEX IF NOT EXISTS sessions_profile_idx ON sessions(profile_id, course_id);
-    `);
-    res.json({ message: 'Sync tables created successfully!' });
+    await ensureSyncTables();
+    res.json({ message: 'Sync tables (sessions + r2r2_records) created successfully!' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// RAIL TO REVENUE V2.0 LIVE CLOUD SYNC
+// ==========================================
+app.post('/api/r2r2/sync', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body) ? req.body : [req.body];
+    for (const r of items) {
+      if (!r || r.practice) continue;
+      const sessionCode = String(r.session || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const tableNum = parseInt(r.number, 10);
+      if (!sessionCode || !tableNum || tableNum < 1 || tableNum > 99) continue;
+      const events = Array.isArray(r.events) ? r.events : [];
+      const counts = r.counts && typeof r.counts === 'object' ? r.counts : {};
+      const ui = r.ui && typeof r.ui === 'object' ? r.ui : {};
+      const name = String(r.name || '').slice(0, 60);
+      const updatedAt = Number(r.updatedAt) || Date.now();
+
+      await pool.query(`
+        INSERT INTO r2r2_records (session_code, table_number, name, counts, events, ui, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (session_code, table_number)
+        DO UPDATE SET
+          name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE r2r2_records.name END,
+          counts = COALESCE(EXCLUDED.counts, r2r2_records.counts),
+          events = CASE
+            WHEN jsonb_array_length(EXCLUDED.events) >= jsonb_array_length(r2r2_records.events)
+            THEN EXCLUDED.events
+            ELSE r2r2_records.events
+          END,
+          ui = COALESCE(EXCLUDED.ui, r2r2_records.ui),
+          updated_at = GREATEST(r2r2_records.updated_at, EXCLUDED.updated_at)
+      `, [sessionCode, tableNum, name, JSON.stringify(counts), JSON.stringify(events), JSON.stringify(ui), updatedAt]);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('R2R2 sync push error:', err);
+    lastError = err;
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+app.get('/api/r2r2/sync', async (req, res) => {
+  try {
+    const sessionCode = String(req.query.session || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!sessionCode) {
+      const all = await pool.query(`
+        SELECT session_code AS session, table_number AS number, table_number AS team, name, counts, events, ui, updated_at AS "updatedAt"
+        FROM r2r2_records
+        ORDER BY updated_at DESC
+        LIMIT 100
+      `);
+      return res.json(all.rows);
+    }
+    const result = await pool.query(`
+      SELECT session_code AS session, table_number AS number, table_number AS team, name, counts, events, ui, updated_at AS "updatedAt"
+      FROM r2r2_records
+      WHERE session_code = $1
+      ORDER BY table_number ASC
+    `, [sessionCode]);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('R2R2 sync pull error:', err);
+    lastError = err;
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

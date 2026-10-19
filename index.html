@@ -1167,7 +1167,7 @@ const API_BASE_URL = "https://tps-simulation-production.up.railway.app";
 
 /* ---------- identity: real registration (v0.5). Names and teams are created
    by participants at the door and persisted to the cloud when reachable. ---------- */
-const REG = { teams: [], liveCourses: ["risk-aml-acquiring","scheme-fees","intro-to-payments","the-dispute-desk","fifth-institution"] };
+const REG = { teams: [], liveCourses: ["risk-aml-acquiring","scheme-fees","intro-to-payments","the-dispute-desk","fifth-institution","rail-to-revenue-v2"] };
 
 /* Each course defines its own themed rank ladder [name, ptsRequired, moneyRequired],
    a starting operating budget, an accent colour, and a boardroom briefing. */
@@ -1245,6 +1245,28 @@ const COURSES = {
       role:"Senior Dispute Specialist",
       line:`<span class="npc">"Twenty disputes hit your desk today across ten modules. Every single one carries a real financial outcome on our ledger. Move quickly, read the file, and defend our capital. Let's see what you're made of."</span>`,
       task:"Resolve twenty live dispute calls. Protect the desk's capital."}
+  },
+  "rail-to-revenue-v2":{
+    title:"Rail to Revenue · One Quarter at GhIPSS", level:"Squad Capstone · 5 Rounds", live:true,
+    accent:"#12CC6F", accentSet:["#12CC6F","#0B6B3B","#071E2E"],
+    externalUrl:"./rail-to-revenue-v2/index.html",
+    consoleUrl:"./rail-to-revenue-v2/console.html",
+    callsLabel:"15 calls · 5 rounds",
+    ranksLabel:"4 clusters + Engine Bonus",
+    unit:"GHS ",
+    budget:2800000,
+    desc:"Ninety days on the GhIPSS commercial and operational engine across six partner accounts. Four functional clusters at every table (Platform & Switch, Control & Settlement, Partner Enablement, Service & Operations), secret cluster objectives, live facilitator curveballs, and the GHS 250,000 Engine Bonus.",
+    tiers:[
+      ["Squad Table",0,0],
+      ["Clean Rail",50,3000000],
+      ["Partner's Choice",100,4000000],
+      ["Engine Bonus Squad",150,4500000],
+      ["Revenue Engine Winner",200,5000000]
+    ],
+    boardroom:{employer:"GhIPSS · The Payment School", speaker:"Executive Sponsor",
+      role:"4-Cluster Table Squad",
+      line:`<span class="npc">"Ninety days. Six accounts. One switch. Every call at your table has one Decision Owner and touches four functional clusters."</span>`,
+      task:"Grow quarterly revenue across five rounds while meeting all four secret cluster objectives."}
   }
 };
 const LEVELS = [["Exemplary",1],["Proficient",.75],["Developing",.5],["Beginning",.25]];
@@ -4723,16 +4745,29 @@ function renderDashboard(){
   g.innerHTML = REG.liveCourses.map(cid => {
     const c = COURSES[cid]; if(!c) return "";
     const scns = SCENARIOS_BY_COURSE[cid] || [];
-    const callsCount = c.days ? "30 calls · 3 days" : (scns.length + (scns.length === 1 ? " scenario" : " incidents"));
+    const callsCount = c.callsLabel || (c.days ? "30 calls · 3 days" : (scns.length + (scns.length === 1 ? " scenario" : " incidents")));
     const budgetStr = (c.unit || "$") + (c.budget || 0).toLocaleString();
-    const ranksCount = (c.tiers ? c.tiers.length : 5) + " ranks";
+    const ranksCount = c.ranksLabel || ((c.tiers ? c.tiers.length : 5) + " ranks");
     const accent = c.accent || "var(--accent)";
     const cfg = accessCfg[cid] || { mode: "open" };
 
     let badgeHtml = `<span class="course-badge">${esc(c.level || "Cohort")}</span>`;
     let btnHtml = `<button class="btn" onclick="handleCourseCardClick('${cid}')">Select Course & Register →</button>`;
 
-    if(user && user.name){
+    if(c.externalUrl){
+      const r2rTeam = lsGet("r2r2_team_v20");
+      if(r2rTeam && r2rTeam.session){
+        badgeHtml = `<span class="course-badge" style="background:#E8FFF4;color:var(--olive);border-color:var(--olive);font-weight:700">● Active Squad · ${esc(r2rTeam.name || ("Table " + r2rTeam.number))} (${esc(r2rTeam.session)})</span>`;
+      } else if(cfg.mode === "key" && !(user && isCourseUnlockedForUser(cid, user))){
+        badgeHtml = `<span class="course-badge" style="background:#FFFBEB;color:var(--gold);border-color:var(--gold)">🔒 Cohort Passcode</span>`;
+      } else {
+        badgeHtml = `<span class="course-badge" style="background:#E8FFF4;color:#0B6B3B;border-color:#12CC6F;font-weight:700">${esc(c.level || "Squad Capstone")}</span>`;
+      }
+      btnHtml = `<div class="row" style="gap:8px;width:100%">
+        <button class="btn" style="flex:1" onclick="handleCourseCardClick('${cid}')">${r2rTeam && r2rTeam.session ? "▶ Resume Squad Table →" : "Launch Squad App →"}</button>
+        ${c.consoleUrl ? `<a class="btn secondary" style="padding:10px 14px;text-decoration:none" href="${c.consoleUrl}" title="Open Facilitator Console & Projector">🎛️ Console</a>` : ""}
+      </div>`;
+    } else if(user && user.name){
       const isUnlocked = isCourseUnlockedForUser(cid, user);
       const progress = lsGet("tps_done_" + cid + "_" + user.id);
       const doneCount = progress && progress.done ? Object.keys(progress.done).length : 0;
@@ -5006,6 +5041,10 @@ function enterAs(u, returning){
   S.user = { id:u.id, name:u.name, email:u.email || (lsGet("tps_profile") && lsGet("tps_profile").email) || null, cohort:u.team||"No team" };
   S.team = u.team||null;
   S.courseId = u.courseId || REG.liveCourses[0];
+  if(COURSES[S.courseId] && COURSES[S.courseId].externalUrl){
+    window.location.href = COURSES[S.courseId].externalUrl;
+    return;
+  }
   S.via = returning ? "return" : "register";
   S.startBudget = COURSES[S.courseId].budget;
   S.done={}; S.attempts={};
@@ -5649,7 +5688,9 @@ function facProgBind(){
 function setFacCourse(cid){
   if(!COURSES[cid]) return;
   FAC.course = cid;
-  FAC.dayIds = (SCENARIOS_BY_COURSE[cid] || []).map(s => s.id);
+  FAC.dayIds = cid === "rail-to-revenue-v2"
+    ? ["r1","r2","r3","r4","r5"]
+    : (SCENARIOS_BY_COURSE[cid] || []).map(s => s.id);
   loadFPD();
   facProgBind();
   renderFacCourseTabs();
@@ -5674,6 +5715,14 @@ function renderFacCourseTabs(){
 
 function renderFacDayCodes(){
   const box = $("facDayCodesList"); if(!box) return;
+  const c = COURSES[FAC.course];
+  if(c && c.consoleUrl){
+    box.innerHTML = `<span class="codebox" style="border-color:#12CC6F;color:#0B6B3B;border-style:solid">⚡ Squad Capstone · Session, Round Release & Curveball Codes managed in R2R Console</span>
+      <a class="btn" href="${c.consoleUrl}" style="padding:7px 14px;font-size:.8rem;text-decoration:none;background:#071E2E;color:#fff">🎛️ Open R2R Facilitator Console →</a>
+      <a class="btn secondary" href="${c.consoleUrl}#screen" target="_blank" style="padding:7px 14px;font-size:.8rem;text-decoration:none">📽️ Open Projector View</a>
+      <a class="btn secondary" href="${c.externalUrl}" target="_blank" style="padding:7px 14px;font-size:.8rem;text-decoration:none">📱 Open Squad Table App</a>`;
+    return;
+  }
   const scns = SCENARIOS_BY_COURSE[FAC.course] || [];
   const isMasterUnlocked = lsGet("tps_master_unlock_" + FAC.course);
 
@@ -5729,7 +5778,7 @@ function facDayRows(o){
     return {
       day: dayNum,
       id: id,
-      title: cleanTitle || sc.title || ("Scenario " + (i + 1)),
+      title: cleanTitle || sc.title || ("Round " + (i + 1)),
       max,
       played: !!d,
       pts: d ? d.pts : 0,
@@ -5751,49 +5800,95 @@ function facStatus(o){
 
 async function facRefresh(){
   $("facNote").textContent = "Fetching cohort results for " + COURSES[FAC.course].title + "…";
-  FAC.maxPts = facMaxPts();
-  const prof = await sbFetch("/profiles?select=id,name,email,team,created_at&order=created_at.asc", {probe:true, headers:{"Prefer":""}});
-  const ses = await sbFetch("/sessions?course_id=eq." + encodeURIComponent(FAC.course) + "&select=profile_id,scenario_id,attempt,composite,points,net,created_at&order=created_at.asc", {probe:true, headers:{"Prefer":""}});
-  FAC.cloud = prof !== null;
+  if(FAC.course === "rail-to-revenue-v2"){
+    FAC.maxPts = 150;
+    const r2rRows = await sbFetch("/api/r2r2/sync", {probe:true, headers:{"Prefer":""}});
+    FAC.cloud = r2rRows !== null;
+    const map = {};
+    const ingestR2R = (sessionCode, num, name, events, updatedAt) => {
+      const id = "r2r_" + sessionCode + "_T" + num;
+      const evs = Array.isArray(events) ? events : [];
+      const undone = new Set(evs.filter(e => e && e.type === "undo").map(e => e.targetEventId));
+      const chooses = evs.filter(e => e && e.type === "choose" && !undone.has(e.id));
+      const roundsDone = Math.min(5, Math.floor(chooses.length / 3));
+      const d = {};
+      for(let r = 1; r <= roundsDone; r++){
+        d["r" + r] = { pts: 30, comp: 100, net: 150000 };
+      }
+      map[id] = {
+        id,
+        name: (name || ("Table " + num)) + " (Table " + num + ")",
+        email: "session:" + sessionCode.toLowerCase(),
+        team: "Session " + sessionCode,
+        created: updatedAt ? new Date(Number(updatedAt)).toISOString().slice(0,10) : "",
+        d,
+        decisionsCount: chooses.length
+      };
+    };
+    (r2rRows || []).forEach(r => ingestR2R(r.session || "LIVE", r.number || r.team || 1, r.name, r.events, r.updatedAt));
+    const localDb = lsGet("r2r2_console_v20");
+    if(localDb && localDb.sessions){
+      Object.values(localDb.sessions).forEach(s => {
+        Object.values(s.teams || {}).forEach(t => {
+          if(t.events && t.events.length) ingestR2R(s.code, t.number, t.name, t.events, t.updatedAt);
+        });
+      });
+    }
+    FAC.roster = Object.values(map).map(o => {
+      const done = Object.keys(o.d).length;
+      o.totalPts = (o.decisionsCount || 0) * 10;
+      o.capital = 2800000 + (o.decisionsCount || 0) * 50000;
+      o.daysDone = done;
+      o.pct = Math.min(100, Math.round(100 * (o.decisionsCount || 0) / 15));
+      o.rank = done >= 5 ? "Quarter Closed" : ("Round " + (done + 1) + " · " + (o.decisionsCount || 0) + "/15 calls");
+      o.status = done >= 5 ? "pass" : "inc";
+      return o;
+    }).sort((a,b) => b.totalPts - a.totalPts || a.name.localeCompare(b.name));
+  } else {
+    FAC.maxPts = facMaxPts();
+    const prof = await sbFetch("/profiles?select=id,name,email,team,created_at&order=created_at.asc", {probe:true, headers:{"Prefer":""}});
+    const ses = await sbFetch("/sessions?course_id=eq." + encodeURIComponent(FAC.course) + "&select=profile_id,scenario_id,attempt,composite,points,net,created_at&order=created_at.asc", {probe:true, headers:{"Prefer":""}});
+    FAC.cloud = prof !== null;
 
-  const map = {};
-  (prof || []).forEach(pr => {
-    if(pr && pr.name) map[pr.id] = { id: pr.id, name: pr.name, email: pr.email || "", team: pr.team || "", created: (pr.created_at || "").slice(0,10), d: {} };
-  });
-
-  (ses || []).forEach(r => {
-    const o = map[r.profile_id]; if(!o) return;
-    const d = o.d[r.scenario_id] = o.d[r.scenario_id] || { pts: -1, comp: 0, net: 0 };
-    if((r.points || 0) >= d.pts){ d.pts = r.points || 0; d.comp = r.composite || 0; }
-    d.net = r.net || 0;
-  });
-
-  /* Merge local storage if this device played this course */
-  if(S.user && S.courseId === FAC.course){
-    const o = map[S.user.id] = map[S.user.id] || { id: S.user.id, name: S.user.name, email: S.user.email || "", team: S.team || "", d: {} };
-    Object.entries(S.done).forEach(([k,v])=>{
-      const d = o.d[k] = o.d[k] || { pts: -1, comp: 0, net: 0 };
-      if((v.bestPts || 0) > d.pts){ d.pts = v.bestPts || 0; }
-      d.net = v.lastNet || 0;
+    const map = {};
+    (prof || []).forEach(pr => {
+      if(pr && pr.name) map[pr.id] = { id: pr.id, name: pr.name, email: pr.email || "", team: pr.team || "", created: (pr.created_at || "").slice(0,10), d: {} };
     });
+
+    (ses || []).forEach(r => {
+      const o = map[r.profile_id]; if(!o) return;
+      const d = o.d[r.scenario_id] = o.d[r.scenario_id] || { pts: -1, comp: 0, net: 0 };
+      if((r.points || 0) >= d.pts){ d.pts = r.points || 0; d.comp = r.composite || 0; }
+      d.net = r.net || 0;
+    });
+
+    /* Merge local storage if this device played this course */
+    if(S.user && S.courseId === FAC.course){
+      const o = map[S.user.id] = map[S.user.id] || { id: S.user.id, name: S.user.name, email: S.user.email || "", team: S.team || "", d: {} };
+      Object.entries(S.done).forEach(([k,v])=>{
+        const d = o.d[k] = o.d[k] || { pts: -1, comp: 0, net: 0 };
+        if((v.bestPts || 0) > d.pts){ d.pts = v.bestPts || 0; }
+        d.net = v.lastNet || 0;
+      });
+    }
+
+    FAC.roster = Object.values(map).map(o => {
+      let pts = 0, net = 0, done = 0;
+      FAC.dayIds.forEach(id => {
+        const d = o.d[id];
+        if(d && d.pts >= 0){ pts += d.pts; net += d.net; done++; }
+      });
+      o.totalPts = pts;
+      o.capital = (FC().budget || 0) + net;
+      o.daysDone = done;
+      o.pct = Math.min(100, Math.round(100 * pts / FAC.maxPts));
+      const tiers = FC().tiers || [["Participant",0,0]];
+      o.rank = tiers[rankIndex(pts, o.capital, tiers)][0];
+      return o;
+    }).sort((a,b) => b.totalPts - a.totalPts || a.name.localeCompare(b.name));
+
+    FAC.roster.forEach(o => o.status = facStatus(o));
   }
-
-  FAC.roster = Object.values(map).map(o => {
-    let pts = 0, net = 0, done = 0;
-    FAC.dayIds.forEach(id => {
-      const d = o.d[id];
-      if(d && d.pts >= 0){ pts += d.pts; net += d.net; done++; }
-    });
-    o.totalPts = pts;
-    o.capital = (FC().budget || 0) + net;
-    o.daysDone = done;
-    o.pct = Math.min(100, Math.round(100 * pts / FAC.maxPts));
-    const tiers = FC().tiers || [["Participant",0,0]];
-    o.rank = tiers[rankIndex(pts, o.capital, tiers)][0];
-    return o;
-  }).sort((a,b) => b.totalPts - a.totalPts || a.name.localeCompare(b.name));
-
-  FAC.roster.forEach(o => o.status = facStatus(o));
 
   // Populate team filter options
   const teams = [...new Set(FAC.roster.map(o => o.team).filter(Boolean))].sort();
@@ -6380,7 +6475,8 @@ function getCourseAccessConfig(){
     "risk-aml-acquiring": { mode: "key", code: "AML-2026", seats: 40 },
     "scheme-fees": { mode: "key", code: "FEES-2026", seats: 40 },
     "the-dispute-desk": { mode: "key", code: "DISPUTE-2026", seats: 30 },
-    "fifth-institution": { mode: "key", code: "FIFTH-2026", seats: 30 }
+    "fifth-institution": { mode: "key", code: "FIFTH-2026", seats: 30 },
+    "rail-to-revenue-v2": { mode: "open", code: "R2R-2026", seats: 54 }
   };
 }
 
@@ -6415,6 +6511,12 @@ function isCourseUnlockedForUser(cid, user){
 let pendingEnrollCourseId = null;
 
 function handleCourseCardClick(cid){
+  const c = COURSES[cid];
+  const cfg = getCourseAccessConfig()[cid] || { mode: "open" };
+  if(c && c.externalUrl && cfg.mode === "open"){
+    window.location.href = c.externalUrl;
+    return;
+  }
   const user = S.user || lsGet("tps_profile");
   const email = (user && user.email) || (lsGet("tps_profile") && lsGet("tps_profile").email);
   if(!user || !email){
@@ -6593,6 +6695,10 @@ function facQuickGrant(id){
 
 /* ---------- seamless course enrollment & switching ---------- */
 function switchCourseDirect(cid){
+  if(COURSES[cid] && COURSES[cid].externalUrl){
+    window.location.href = COURSES[cid].externalUrl;
+    return;
+  }
   const u = S.user || lsGet("tps_profile");
   if(!u || !u.name){ selectCourse(cid); return; }
   const profile = { id: u.id, name: u.name, email: u.email || (lsGet("tps_profile") && lsGet("tps_profile").email) || null, team: u.cohort || u.team || null, courseId: cid };
@@ -6619,7 +6725,7 @@ function openTranscriptsModal(){
   let enrolledCount = 0, completedCount = 0, totalPtsAll = 0, totalCapitalAll = 0;
 
   const rowsHtml = REG.liveCourses.map(cid => {
-    const c = COURSES[cid]; if(!c) return "";
+    const c = COURSES[cid]; if(!c || c.externalUrl) return "";
     const scns = SCENARIOS_BY_COURSE[cid] || [];
     const totalReq = scns.length || 1;
     const prog = lsGet("tps_done_" + cid + "_" + u.id);
