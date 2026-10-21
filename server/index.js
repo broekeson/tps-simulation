@@ -141,6 +141,7 @@ async function ensureSyncTables() {
       session_code VARCHAR(64) NOT NULL,
       table_number INTEGER NOT NULL,
       name VARCHAR(128) DEFAULT '',
+      members JSONB DEFAULT '[]'::jsonb,
       counts JSONB,
       events JSONB NOT NULL DEFAULT '[]'::jsonb,
       ui JSONB,
@@ -148,6 +149,7 @@ async function ensureSyncTables() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (session_code, table_number)
     );
+    ALTER TABLE r2r2_records ADD COLUMN IF NOT EXISTS members JSONB DEFAULT '[]'::jsonb;
   `);
 }
 
@@ -175,17 +177,22 @@ app.post('/api/r2r2/sync', async (req, res) => {
       const tableNum = parseInt(r.number, 10);
       if (!sessionCode || !tableNum || tableNum < 1 || tableNum > 99) continue;
       const events = Array.isArray(r.events) ? r.events : [];
+      const members = Array.isArray(r.members) ? r.members : [];
       const counts = r.counts && typeof r.counts === 'object' ? r.counts : {};
       const ui = r.ui && typeof r.ui === 'object' ? r.ui : {};
       const name = String(r.name || '').slice(0, 60);
       const updatedAt = Number(r.updatedAt) || Date.now();
 
       await pool.query(`
-        INSERT INTO r2r2_records (session_code, table_number, name, counts, events, ui, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO r2r2_records (session_code, table_number, name, members, counts, events, ui, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (session_code, table_number)
         DO UPDATE SET
           name = CASE WHEN EXCLUDED.name <> '' THEN EXCLUDED.name ELSE r2r2_records.name END,
+          members = CASE
+            WHEN jsonb_array_length(EXCLUDED.members) > 0 THEN EXCLUDED.members
+            ELSE COALESCE(r2r2_records.members, '[]'::jsonb)
+          END,
           counts = COALESCE(EXCLUDED.counts, r2r2_records.counts),
           events = CASE
             WHEN jsonb_array_length(EXCLUDED.events) >= jsonb_array_length(r2r2_records.events)
@@ -194,7 +201,7 @@ app.post('/api/r2r2/sync', async (req, res) => {
           END,
           ui = COALESCE(EXCLUDED.ui, r2r2_records.ui),
           updated_at = GREATEST(r2r2_records.updated_at, EXCLUDED.updated_at)
-      `, [sessionCode, tableNum, name, JSON.stringify(counts), JSON.stringify(events), JSON.stringify(ui), updatedAt]);
+      `, [sessionCode, tableNum, name, JSON.stringify(members), JSON.stringify(counts), JSON.stringify(events), JSON.stringify(ui), updatedAt]);
     }
     res.json({ ok: true });
   } catch (err) {
@@ -209,7 +216,7 @@ app.get('/api/r2r2/sync', async (req, res) => {
     const sessionCode = String(req.query.session || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     if (!sessionCode) {
       const all = await pool.query(`
-        SELECT session_code AS session, table_number AS number, table_number AS team, name, counts, events, ui, updated_at AS "updatedAt"
+        SELECT session_code AS session, table_number AS number, table_number AS team, name, members, counts, events, ui, updated_at AS "updatedAt"
         FROM r2r2_records
         ORDER BY updated_at DESC
         LIMIT 100
@@ -217,7 +224,7 @@ app.get('/api/r2r2/sync', async (req, res) => {
       return res.json(all.rows);
     }
     const result = await pool.query(`
-      SELECT session_code AS session, table_number AS number, table_number AS team, name, counts, events, ui, updated_at AS "updatedAt"
+      SELECT session_code AS session, table_number AS number, table_number AS team, name, members, counts, events, ui, updated_at AS "updatedAt"
       FROM r2r2_records
       WHERE session_code = $1
       ORDER BY table_number ASC

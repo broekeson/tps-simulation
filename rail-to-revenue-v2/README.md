@@ -13,4 +13,4 @@ Addresses once deployed: teams `https://tpssimulation.intreensic.com/rail-to-rev
 
 The PIN is in the operator run sheet, not in this folder, because this folder is public once deployed.
 
-No backend: team devices save everything locally and never need the network after the first load. Rounds open with four-digit release codes, curveballs arrive by code, and the console collects each table's position by scanning the QR code on its screen.
+No backend: team devices save everything locally and never need the network after the first load. A team joins with the session code and its table number, names itself and lists its members. Rounds open with four-digit release codes, curveballs arrive by code, and the console collects each table's position, name and members by scanning the QR code on its screen. The console's Programme tab and projector views combine Day 1 and Day 2 sessions: daily totals, the cumulative total and every team from both days ranked together.

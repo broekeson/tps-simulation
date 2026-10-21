@@ -337,6 +337,12 @@ body.team { padding-bottom: 2rem; }
 .join .sub { color: var(--ink-70); font-size: 19px; margin-bottom: 1.5rem; }
 
 /* setup */
+.member { display: grid; grid-template-columns: 1fr 190px 44px; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+.member input, .member select { min-height: 48px; font-size: 18px; }
+.member .mDel { min-height: 44px; border-radius: 8px; border: 2px solid var(--ink-20); background: #fff; font-size: 22px; cursor: pointer; }
+.member .mDel:disabled { opacity: .35; cursor: default; }
+.counts-line { margin-top: .25rem; }
+@media (max-width: 640px) { .member { grid-template-columns: 1fr 44px; } .member select { grid-column: 1; } }
 .counts { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: .75rem; }
 .cnt { background: #fff; border: 2px solid var(--ink-20); border-radius: var(--radius); padding: .75rem; display: grid; gap: .5rem; }
 .cnt .nm { font-weight: 700; display: flex; align-items: center; gap: .5rem; }
@@ -788,7 +794,7 @@ return module.exports;
 })({ exports: {} });
 </script>
 <script>
-const BUILD = {"version":"2.0.20261015","scenarioVersion":"2.0","pinSalt":"ea05e493b317b898","pinHash":"37815a9b8dd19590c032e030bf29773adc52e7e7396ea8746839a792537951f4"};
+const BUILD = {"version":"2.0.20261020","scenarioVersion":"2.0","pinSalt":"388a5d08c19dc0f0","pinHash":"3bcf6ac2d6535f84ff2bb08e989c562b67d2b11997c443f39238be3b670ee0ba"};
 const SCN = JSON.parse(document.getElementById("scenario").textContent);
 </script>
 <script>
@@ -900,12 +906,26 @@ function teamFromJoin(session, join, teamCount) {
 function sessionFingerprint(session) { return parseInt(sha256hex("fp2|" + normSession(session)).slice(0, 8), 16).toString(36).toUpperCase().slice(0, 4).padStart(4, "0"); }
 
 /* ---------- results code: compact, scannable copy of a team's effective event log ----------
- * R2R2|SESSFP|team|cluster counts + highest round released|name|events|check
- * events: two base-36 characters each. choose = idx*4+option (48 ids, up to 191), inject = 200+i, lifeline = 210. Voided events are dropped first. */
+ * R2R2|SESSFP|table|cluster counts + highest round released|name|members|events|check
+ * members: one entry per person, cluster letter + colon + name, joined by "~" (P Platform, C Control, E Enablement, S Service).
+ * events: two base-36 characters each. choose = idx*4+option (48 ids, up to 191), inject = 200+i, lifeline = 210. Voided events are dropped first.
+ * The check covers everything except the name and members, so the typed form can leave both out. */
+const MEMBER_MAX = 12, MEMBER_NAME_MAX = 24;
 function allIds(scn) { return Object.keys(scn.nodes).concat(Object.keys(scn.injects)); }
 function effectiveEvents(events) {
   const voided = new Set(events.filter((e) => e.type === "void").map((e) => String(e.targetId)));
   return events.filter((e) => e.type !== "void" && !voided.has(String(e.id)));
+}
+function codeEsc(t) { return String(t || "").replace(/[%|~:+\n\r]/g, (ch) => "%" + ch.charCodeAt(0).toString(16).padStart(2, "0")).replace(/\s/g, "+"); }
+function codeUnesc(t) { return String(t || "").replace(/\+/g, " ").replace(/%([0-9a-f]{2})/gi, (m, h) => String.fromCharCode(parseInt(h, 16))); }
+function cleanMembers(list) {
+  return (Array.isArray(list) ? list : []).map((m) => ({ name: String((m && m.name) || "").trim().slice(0, MEMBER_NAME_MAX), cluster: CLUSTERS.indexOf(m && m.cluster) !== -1 ? m.cluster : null })).filter((m) => m.name && m.cluster).slice(0, MEMBER_MAX);
+}
+function countsOf(members) { const c = {}; CLUSTERS.forEach((k) => { c[k] = 0; }); cleanMembers(members).forEach((m) => { c[m.cluster] += 1; }); return c; }
+function encodeMembers(list) { return cleanMembers(list).map((m) => m.cluster[0] + ":" + codeEsc(m.name)).join("~"); }
+function decodeMembers(txt) {
+  if (!txt) return [];
+  return String(txt).split("~").map((p) => { const i = p.indexOf(":"); if (i < 1) return null; const cl = CLUSTERS.find((k) => k[0] === p[0].toUpperCase()); return cl ? { name: codeUnesc(p.slice(i + 1)).slice(0, MEMBER_NAME_MAX), cluster: cl } : null; }).filter((m) => m && m.name).slice(0, MEMBER_MAX);
 }
 function encodeResults(scn, t) {
   const ids = allIds(scn), inj = Object.keys(scn.injects);
@@ -918,15 +938,16 @@ function encodeResults(scn, t) {
   }).join("");
   const rel = t.practice ? 5 : t.ui && t.ui.released && t.ui.released.length ? Math.max.apply(null, t.ui.released) : 0;
   const counts = CLUSTERS.map((c) => clampN((t.counts && t.counts[c]) || 0, 0, 9)).join("") + String(clampN(rel, 0, 5));
-  const name = encodeURIComponent(String(t.name || "").slice(0, 28)).replace(/%20/g, "+");
+  const name = codeEsc(String(t.name || "").slice(0, 28));
+  const members = encodeMembers(t.members);
   const core = ["R2R2", sessionFingerprint(t.session), String(t.number), counts, toks].join("|");
   const chk = parseInt(sha256hex(core).slice(0, 6), 16).toString(36).toUpperCase().slice(-3).padStart(3, "0");
-  return ["R2R2", sessionFingerprint(t.session), String(t.number), counts, name, toks, chk].join("|");
+  return ["R2R2", sessionFingerprint(t.session), String(t.number), counts, name, members, toks, chk].join("|");
 }
 function decodeResults(scn, code) {
   const parts = String(code || "").trim().split("|");
-  if (parts.length !== 7 || parts[0].toUpperCase() !== "R2R2") throw new Error("This is not a Rail to Revenue v2 results code.");
-  const [, fp, num, counts, name, toksRaw, chk] = parts;
+  if (parts.length !== 8 || parts[0].toUpperCase() !== "R2R2") throw new Error("This is not a Rail to Revenue v2 results code.");
+  const [, fp, num, counts, name, members, toksRaw, chk] = parts;
   const toks = toksRaw.toUpperCase();
   const core = ["R2R2", fp.toUpperCase(), num, counts, toks].join("|");
   const want = parseInt(sha256hex(core).slice(0, 6), 16).toString(36).toUpperCase().slice(-3).padStart(3, "0");
@@ -943,16 +964,15 @@ function decodeResults(scn, code) {
   }
   const c = {};
   CLUSTERS.forEach((k, i) => { c[k] = +(counts[i] || 0); });
-  let nm = "";
-  try { nm = decodeURIComponent(String(name).replace(/\+/g, "%20")); } catch (e) { nm = ""; }
-  return { fingerprint: fp.toUpperCase(), number: +num, counts: c, name: nm, events, released: counts.length > 4 ? +counts[4] : 0 };
+  return { fingerprint: fp.toUpperCase(), number: +num, counts: c, name: codeUnesc(name).slice(0, 28), members: decodeMembers(members), events, released: counts.length > 4 ? +counts[4] : 0 };
 }
-function typedResults(code) { const p = code.split("|"); p[4] = ""; return p.join("|"); }
+/** The typed form leaves out the team name and the members, which the console keeps from the last scan. */
+function typedResults(code) { const p = code.split("|"); p[4] = ""; p[5] = ""; return p.join("|"); }
 
 /* ---------- read-only views over state ---------- */
 function nodeOf(scn, id) { return scn.nodes[id] || scn.injects[id]; }
 function decisionsOf(state) { return state.log.filter((l) => l.type === "decision"); }
-function totalDecisions(state) { return 15 + ((state && state.injectsPlayed ? state.injectsPlayed.length : 0) + (state && state.pendingInjects ? state.pendingInjects.length : 0)); }
+function totalDecisions(state) { return 15 + ((state && state.injectsPlayed) || 0) + ((state && state.pendingInjects && state.pendingInjects.length) || 0); }
 function settlementsOf(state) { return state.log.filter((l) => l.type === "settlement"); }
 function finalOf(state) { return state.log.find((l) => l.type === "final") || null; }
 function fnOf(scn, id) { return scn.functions.find((f) => f.id === id); }
@@ -1149,39 +1169,46 @@ function download(name, text, type) {
 function csvCell(v) { const s = String(v == null ? "" : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 
 /* ---------- transport seam ----------
- * Live sync via Railway backend (with 100% offline fallback to QR and typed codes):
+ * Live Railway cloud sync with automatic local fallback.
  * push(record) after every saveRec, pull(session) on the console. */
-const SYNC = {
-  enabled: true,
-  url: "https://tps-simulation-production.up.railway.app/api/r2r2/sync",
-  push(rec) {
-    if (!this.enabled || !rec || rec.practice || !rec.session || !rec.number) return;
-    try {
-      fetch(this.url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session: normSession(rec.session),
-          number: rec.number,
-          name: rec.name || "",
-          counts: rec.counts || {},
-          events: rec.events || [],
-          ui: rec.ui || {},
-          updatedAt: rec.updatedAt || Date.now()
-        })
-      }).catch(() => {});
-    } catch (e) { /* offline-safe */ }
-  },
-  pull(session) {
-    if (!this.enabled || !session) return Promise.resolve([]);
-    const code = normSession(session);
-    if (!code) return Promise.resolve([]);
-    return fetch(this.url + "?session=" + encodeURIComponent(code))
-      .then((r) => (r.ok ? r.json() : []))
-      .then((rows) => (Array.isArray(rows) ? rows : []))
-      .catch(() => []);
-  }
-};
+const SYNC = (() => {
+  const url = "https://tps-simulation-production.up.railway.app/api/r2r2/sync";
+  return {
+    enabled: true,
+    url,
+    push(rec) {
+      if (!rec || rec.practice || !rec.session || !rec.number) return;
+      try {
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session: normSession(rec.session),
+            number: rec.number,
+            name: rec.name || "",
+            members: rec.members || [],
+            counts: rec.counts || {},
+            events: rec.events || [],
+            ui: rec.ui || {},
+            updatedAt: rec.updatedAt || Date.now(),
+          }),
+        }).catch(() => {});
+      } catch (e) { /* offline-first */ }
+    },
+    async pull(session) {
+      const s = normSession(session);
+      if (!s) return [];
+      try {
+        const res = await fetch(url + "?session=" + encodeURIComponent(s), { cache: "no-store" });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+      } catch (e) {
+        return [];
+      }
+    },
+  };
+})();
 
 /* ---------- service worker ---------- */
 function registerSW() {
@@ -1345,7 +1372,7 @@ function saveRec() { if (REC) { REC.updatedAt = Date.now(); STORE.set(REC.key, R
 function loadActive() { const k = STORE.get("r2r2_active", null); if (!k) return null; const r = STORE.get(k, null); return r && r.events ? r : null; }
 function newRec(o) {
   return Object.assign({
-    key: recKey(o.session, o.number), session: normSession(o.session), number: o.number, name: "", counts: { PLATFORM: 0, CONTROL: 0, ENABLEMENT: 0, SERVICE: 0 },
+    key: recKey(o.session, o.number), session: normSession(o.session), number: o.number, name: "", members: [], counts: { PLATFORM: 0, CONTROL: 0, ENABLEMENT: 0, SERVICE: 0 },
     setupDone: false, events: [], seq: 0, practice: false, restored: false,
     ui: { released: [], started: [], ack: 0, ackSet: 0, handoff: {}, shownAt: {}, sel: {}, lastLockAt: 0 },
     createdAt: Date.now(), updatedAt: Date.now(), build: BUILD.version,
@@ -1388,7 +1415,7 @@ function renderHeader(v) {
   const st = v.state, ld = lastDecision(st), show = v.showDeltas && ld ? ld.effects : null;
   const b = SCN.config.bounds.capacity[1];
   const roundTxt = v.label || (st.status === "finished" ? "Quarter closed" : `Round ${st.round}, day ${gameDay(SCN, st)}`);
-  HDR.innerHTML = `<div class="who"><b>${esc(REC.name || "Squad " + REC.number)}</b><span>${esc(roundTxt)}</span></div>
+  HDR.innerHTML = `<div class="who"><b>${esc(REC.name || "Table " + REC.number)}</b><span>${esc(roundTxt)}</span></div>
     <div class="meters" aria-label="Meters">
       ${meterHTML("capital", "Revenue", fmtM(st.capital), show && show.capital, "higher")}
       ${meterHTML("trust", "Partner Trust", st.trust, show && show.trust, "higher")}
@@ -1427,50 +1454,67 @@ function renderJoin() {
   APP.innerHTML = `<div class="join"><div class="joinmap">${mapPanelHTML("joinMap", "The GhIPSS network", "Day 1 of the quarter")}</div><div class="sheet">
     <span class="ghlogo" aria-hidden="true">R2</span>
     <h1>Rail to Revenue</h1>
-    <p class="sub">One quarter at GhIPSS. Join your squad's table.</p>
+    <p class="sub">One quarter at GhIPSS. Sit down as a team.</p>
     <div class="field"><label for="jSess">Session code</label><input id="jSess" class="code-in" autocapitalize="characters" autocomplete="off" spellcheck="false" value="${esc(STORE.get("r2r2_lastSession", ""))}" placeholder="On screen"></div>
-    <div class="field"><label for="jJoin">Your table's join code</label><input id="jJoin" class="code-in" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" placeholder="4 digits"><div class="hint">On your table tent.</div></div>
+    <div class="field"><label for="jTable">Table number</label><input id="jTable" class="code-in" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="off" placeholder="1 to 9"><div class="hint">On your table tent.</div></div>
     <div class="err" id="jErr" role="alert"></div>
-    <button class="btn primary wide big" id="jGo">Join the session</button>
+    <button class="btn primary wide big" id="jGo">Create our team</button>
     <div class="row between" style="margin-top:1rem"><button class="btn quiet" id="jRestore">Continue a team from another device</button><button class="btn quiet" id="jPractice">Faculty practice run</button><a class="btn quiet" href="../index.html" style="text-decoration:none">&larr; Course Hub</a></div>
     <p class="stamp" style="margin-top:1rem">Build ${esc(BUILD.version)}, scenario ${esc(SCN.meta.version)}</p>
   </div></div>`;
   mountMap("joinMap", null, null);
   const go = () => {
-    const sess = $("#jSess").value.trim(), join = $("#jJoin").value.trim();
+    const sess = $("#jSess").value.trim(), n = parseInt($("#jTable").value.trim(), 10);
     if (!normSession(sess)) { $("#jErr").textContent = "Type the session code shown on the projector."; return; }
-    const n = teamFromJoin(sess, join, 9);
-    if (!n) { $("#jErr").textContent = "That join code does not belong to this session. Check the table tent."; return; }
+    if (!(n >= 1 && n <= 9)) { $("#jErr").textContent = "Type your table number, 1 to 9. It is on the table tent."; return; }
     SOUND.unlock();
     const existing = STORE.get(recKey(sess, n), null);
     REC = existing && existing.events ? existing : newRec({ session: sess, number: n });
+    if (!REC.members) REC.members = [];
     STORE.set("r2r2_lastSession", normSession(sess));
     saveRec(); HSTATE.shown = null; render();
   };
   $("#jGo").onclick = go;
-  $("#jJoin").addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  $("#jTable").addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
   $("#jRestore").onclick = restoreFlow;
   $("#jPractice").onclick = practiceFlow;
 }
 
-/* ---------- squad set-up ---------- */
+/* ---------- team set-up: name and members ---------- */
 function renderSetup() {
-  const c = REC.counts;
+  const draft = (REC.members && REC.members.length ? REC.members : [{ name: "", cluster: "" }, { name: "", cluster: "" }]).map((m) => ({ name: m.name || "", cluster: m.cluster || "" }));
+  const clusterOpts = (sel) => `<option value="">Cluster</option>` + SCN.functions.map((f) => `<option value="${f.id}" ${sel === f.id ? "selected" : ""}>${esc(f.name)}</option>`).join("");
+  const rowsHTML = () => draft.map((m, i) => `<div class="member" data-i="${i}"><input class="mName" maxlength="${MEMBER_NAME_MAX}" placeholder="Name" value="${esc(m.name)}" aria-label="Member ${i + 1} name"><select class="mCluster" aria-label="Member ${i + 1} cluster">${clusterOpts(m.cluster)}</select><button type="button" class="mDel" aria-label="Remove member ${i + 1}" ${draft.length <= 1 ? "disabled" : ""}>&times;</button></div>`).join("");
   APP.innerHTML = `<div class="screen"><div class="sheet">
-    <h1>Set up your squad</h1>
-    <p class="lead">Table ${REC.number}. Give the squad a name and say how many of you sit in each cluster. No personal names: the game keeps none.</p>
-    <div class="field"><label for="sName">Squad name</label><input id="sName" maxlength="28" value="${esc(REC.name)}" placeholder="For example: Northern Rail"></div>
-    <div class="counts">${SCN.functions.map((f) => `<div class="cnt" style="--c:#${f.colour}"><div class="nm">${esc(f.name)}</div><div class="small muted">${esc(f.departments.join(", "))}</div><div class="ctl"><button type="button" data-k="${f.id}" data-d="-1" aria-label="Fewer in ${esc(f.name)}">&minus;</button><output id="c_${f.id}">${c[f.id] || 0}</output><button type="button" data-k="${f.id}" data-d="1" aria-label="More in ${esc(f.name)}">+</button></div></div>`).join("")}</div>
+    <h1>Create your team</h1>
+    <p class="lead">Table ${REC.number}. Name the team, then list everyone at the table with their cluster. The cluster decides who locks each decision.</p>
+    <div class="field"><label for="sName">Team name</label><input id="sName" maxlength="28" value="${esc(REC.name)}" placeholder="For example: Northern Rail"></div>
+    <div class="field"><label>Members</label><div class="small muted" style="margin-bottom:.4rem">${SCN.functions.map((f) => `<b>${esc(f.name)}</b>: ${esc(f.departments.join(", "))}`).join(". ")}.</div><div id="members">${rowsHTML()}</div><button type="button" class="btn small ghost" id="mAdd" style="margin-top:.5rem">Add a member</button></div>
+    <div class="counts-line small muted" id="countsLine"></div>
     <div class="err" id="sErr" role="alert"></div>
     <div class="row end"><button class="btn primary big" id="sGo">Enter the lobby</button></div>
   </div></div>`;
-  $$(".cnt button").forEach((b) => b.onclick = () => { const k = b.dataset.k; REC.counts[k] = clampN((REC.counts[k] || 0) + (+b.dataset.d), 0, 9); $("#c_" + k).value = REC.counts[k]; SOUND.tap(); });
+  const syncLine = () => { const c = countsOf(draft); $("#countsLine").textContent = SCN.functions.map((f) => `${f.name} ${c[f.id]}`).join(", ") + "."; };
+  const bind = () => {
+    $$("#members .member").forEach((row) => {
+      const i = +row.dataset.i;
+      $(".mName", row).oninput = (e) => { draft[i].name = e.target.value; syncLine(); };
+      $(".mCluster", row).onchange = (e) => { draft[i].cluster = e.target.value; syncLine(); SOUND.tap(); };
+      $(".mDel", row).onclick = () => { draft.splice(i, 1); $("#members").innerHTML = rowsHTML(); bind(); syncLine(); };
+    });
+    syncLine();
+  };
+  bind();
+  $("#mAdd").onclick = () => { if (draft.length >= MEMBER_MAX) { $("#sErr").textContent = `Up to ${MEMBER_MAX} members a team.`; return; } draft.push({ name: "", cluster: "" }); $("#members").innerHTML = rowsHTML(); bind(); const last = $$("#members .mName").pop(); if (last) last.focus(); };
   $("#sGo").onclick = () => {
     const name = $("#sName").value.trim();
-    if (!name) { $("#sErr").textContent = "Give the squad a name first."; return; }
-    const total = CLUSTERS.reduce((s, k) => s + (REC.counts[k] || 0), 0);
-    if (total < 2) { $("#sErr").textContent = "Count the people at the table in each cluster."; return; }
-    REC.name = name; REC.setupDone = true; saveRec(); render();
+    if (!name) { $("#sErr").textContent = "Give the team a name first."; return; }
+    const filled = draft.filter((m) => m.name.trim() || m.cluster);
+    const incomplete = filled.find((m) => !m.name.trim() || !m.cluster);
+    if (incomplete) { $("#sErr").textContent = "Every member needs a name and a cluster."; return; }
+    const members = cleanMembers(filled);
+    if (members.length < 2) { $("#sErr").textContent = "List at least two members."; return; }
+    REC.name = name; REC.members = members; REC.counts = countsOf(members); REC.setupDone = true; saveRec(); render();
   };
 }
 
@@ -1761,8 +1805,8 @@ function openMenu() {
     <button class="btn ghost wide" id="mRules">How the quarter works</button>
     <button class="btn ghost wide" id="mMute">${SOUND.muted ? "Turn sound on" : "Turn sound off"}</button>
     <button class="btn ghost wide" id="mLog">Download the decision log</button>
+    <a class="btn ghost wide" href="../index.html" style="text-decoration:none;text-align:center">&larr; Back to Course Hub</a>
     <button class="btn quiet wide" id="mLeave">Leave this team</button>
-    <a class="btn quiet wide" href="../index.html" style="text-align:center;text-decoration:none">&larr; Back to TPS Course Hub</a>
     </div><div class="row end"><button class="btn quiet" id="mClose">Close</button></div><p class="stamp">Build ${esc(BUILD.version)}, table ${REC.number}${REC.practice ? ", practice run" : ""}</p>`, { label: "Menu" });
   const wrap = (fn) => () => { m.close(); fn(); };
   $("#mClose", m.el).onclick = m.close;
@@ -1790,7 +1834,7 @@ function showResultsCode() {
     <div class="row end"><button class="btn primary" onclick="this.closest('.modal-wrap').remove()">Close</button></div>`, { label: "Results code" });
 }
 function downloadLog() {
-  const out = { kind: "rail-to-revenue-team-log", scenarioVersion: SCN.meta.version, build: BUILD.version, session: REC.session, team: REC.number, name: REC.name, counts: REC.counts, exportedAt: new Date().toISOString(), events: REC.events };
+  const out = { kind: "rail-to-revenue-team-log", scenarioVersion: SCN.meta.version, build: BUILD.version, session: REC.session, team: REC.number, name: REC.name, members: REC.members || [], counts: REC.counts, exportedAt: new Date().toISOString(), events: REC.events };
   download(`R2R2_${normSession(REC.session)}_Team${REC.number}.json`, JSON.stringify(out, null, 1));
 }
 function leaveFlow() {
@@ -1809,7 +1853,7 @@ function leaveFlow() {
   };
 }
 function restoreFlow() {
-  const m = modal(`<h2>Continue a team</h2><p>For a team moving to a new device. Open "Show our results code" on the old device, or ask the facilitator for the table's code.</p>
+  const m = modal(`<h2>Continue a team</h2><p>For a team moving to a new device. Show the results code on the old device, or ask the facilitator for the table's code. The typed form carries the moves; the team name and members come back with the next scan.</p>
     <div class="field"><label for="rSess">Session code</label><input id="rSess" value="${esc(STORE.get("r2r2_lastSession", ""))}" autocapitalize="characters"></div>
     <div class="field"><label for="rCode">Results code</label><input id="rCode" autocapitalize="characters" spellcheck="false" placeholder="R2R2|..."></div>
     <div class="err" id="rErr" role="alert"></div>
@@ -1823,7 +1867,7 @@ function restoreFlow() {
     const evs = d.events.map((e, i) => Object.assign({}, e, { id: uuid(), seq: i + 1, at: Date.now() - 60000 }));
     let st;
     try { st = ENGINE.replay(SCN, evs); } catch (e) { $("#rErr", m.el).textContent = "The code does not replay cleanly: " + e.message; return; }
-    const r = newRec({ session: sess, number: d.number, name: d.name || "", counts: d.counts, setupDone: !!d.name, events: evs, seq: evs.length, restored: true });
+    const r = newRec({ session: sess, number: d.number, name: d.name || "", members: d.members || [], counts: d.counts, setupDone: !!d.name, events: evs, seq: evs.length, restored: true });
     r.ui.ack = decisionsOf(st).length; r.ui.ackSet = settlementsOf(st).length;
     for (let i = 1; i < st.round; i++) { r.ui.released.push(i); r.ui.started.push(i); }
     for (let i = st.round; i <= d.released; i++) r.ui.released.push(i);
@@ -1840,7 +1884,7 @@ function practiceFlow() {
   $("#pGo", m.el).onclick = () => {
     if (!pinOk($("#pPin", m.el).value)) { $("#pErr", m.el).textContent = "That PIN is not right."; return; }
     m.close(); SOUND.unlock();
-    REC = newRec({ session: "PRACTICE", number: 0, practice: true, key: "r2r2_rec:PRACTICE:" + Date.now(), name: "Practice table", setupDone: true, counts: { PLATFORM: 1, CONTROL: 1, ENABLEMENT: 1, SERVICE: 1 } });
+    REC = newRec({ session: "PRACTICE", number: 0, practice: true, key: "r2r2_rec:PRACTICE:" + Date.now(), name: "Practice table", setupDone: true, members: [{ name: "Coach", cluster: "PLATFORM" }, { name: "Coach", cluster: "CONTROL" }, { name: "Coach", cluster: "ENABLEMENT" }, { name: "Coach", cluster: "SERVICE" }], counts: { PLATFORM: 1, CONTROL: 1, ENABLEMENT: 1, SERVICE: 1 } });
     saveRec(); render();
   };
 }

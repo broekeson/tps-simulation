@@ -4755,7 +4755,8 @@ function renderDashboard(){
     let btnHtml = `<button class="btn" onclick="handleCourseCardClick('${cid}')">Select Course & Register →</button>`;
 
     if(c.externalUrl){
-      const r2rTeam = lsGet("r2r2_team_v20");
+      const r2rActiveKey = lsGet("r2r2_active");
+      const r2rTeam = (r2rActiveKey && lsGet(r2rActiveKey)) || lsGet("r2r2_team_v20");
       if(r2rTeam && r2rTeam.session){
         badgeHtml = `<span class="course-badge" style="background:#E8FFF4;color:var(--olive);border-color:var(--olive);font-weight:700">● Active Squad · ${esc(r2rTeam.name || ("Table " + r2rTeam.number))} (${esc(r2rTeam.session)})</span>`;
       } else if(cfg.mode === "key" && !(user && isCourseUnlockedForUser(cid, user))){
@@ -5805,32 +5806,36 @@ async function facRefresh(){
     const r2rRows = await sbFetch("/api/r2r2/sync", {probe:true, headers:{"Prefer":""}});
     FAC.cloud = r2rRows !== null;
     const map = {};
-    const ingestR2R = (sessionCode, num, name, events, updatedAt) => {
+    const ingestR2R = (sessionCode, num, name, events, updatedAt, members) => {
       const id = "r2r_" + sessionCode + "_T" + num;
       const evs = Array.isArray(events) ? events : [];
-      const undone = new Set(evs.filter(e => e && e.type === "undo").map(e => e.targetEventId));
+      const undone = new Set(evs.filter(e => e && (e.type === "void" || e.type === "undo")).map(e => e.targetId || e.targetEventId));
       const chooses = evs.filter(e => e && e.type === "choose" && !undone.has(e.id));
       const roundsDone = Math.min(5, Math.floor(chooses.length / 3));
       const d = {};
       for(let r = 1; r <= roundsDone; r++){
         d["r" + r] = { pts: 30, comp: 100, net: 150000 };
       }
+      const mList = Array.isArray(members) ? members.map(m => m && m.name).filter(Boolean) : [];
+      const mSummary = mList.length ? (mList.length + " members: " + mList.join(", ")) : ("session:" + sessionCode.toLowerCase());
       map[id] = {
         id,
         name: (name || ("Table " + num)) + " (Table " + num + ")",
-        email: "session:" + sessionCode.toLowerCase(),
+        email: mSummary.length > 42 ? (mSummary.slice(0, 40) + "…") : mSummary,
         team: "Session " + sessionCode,
         created: updatedAt ? new Date(Number(updatedAt)).toISOString().slice(0,10) : "",
         d,
         decisionsCount: chooses.length
       };
     };
-    (r2rRows || []).forEach(r => ingestR2R(r.session || "LIVE", r.number || r.team || 1, r.name, r.events, r.updatedAt));
-    const localDb = lsGet("r2r2_console_v20");
+    (r2rRows || []).forEach(r => ingestR2R(r.session || "LIVE", r.number || r.team || 1, r.name, r.events, r.updatedAt, r.members));
+    const localDb = lsGet("r2r2_console") || lsGet("r2r2_console_v20");
     if(localDb && localDb.sessions){
       Object.values(localDb.sessions).forEach(s => {
         Object.values(s.teams || {}).forEach(t => {
-          if(t.events && t.events.length) ingestR2R(s.code, t.number, t.name, t.events, t.updatedAt);
+          if((t.events && t.events.length) || (t.members && t.members.length) || t.name) {
+            ingestR2R(s.code, t.number, t.name, t.events, t.updatedAt, t.members);
+          }
         });
       });
     }

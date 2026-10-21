@@ -1,5 +1,5 @@
 /* Rail to Revenue v2.0 service worker: keeps both pages usable through a reload with no signal. */
-const CACHE = "r2r2-2.0.20261015";
+const CACHE = "r2r2-2.0.20261020";
 const SHELL = ["./", "./index.html", "./console.html"];
 
 self.addEventListener("install", (e) => {
@@ -18,11 +18,12 @@ self.addEventListener("fetch", (e) => {
     const timer = setTimeout(() => { fromCache().then((r) => { if (!done && r) { done = true; resolve(r); } }); }, 3500);
     fetch(req).then((res) => {
       if (res && res.ok) {
-        const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy));
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy));
         if (!done) { done = true; clearTimeout(timer); resolve(res); }
-      } else {
-        fromCache().then((r) => { if (!done) { done = true; clearTimeout(timer); resolve(r || res); } });
+        return;
       }
+      fromCache().then((r) => { if (!done) { done = true; clearTimeout(timer); resolve(r || res || new Response("Offline", { status: 503 })); } });
     }).catch(() => {
       fromCache().then((r) => { if (!done) { done = true; clearTimeout(timer); resolve(r || new Response("Offline", { status: 503 })); } });
     });
